@@ -1,6 +1,6 @@
 # FolderWatcher
 
-Simple Python folder watcher that logs when new files appear in a directory and delegates file processing (move / clean) to a small processor module.
+Python folder watcher that logs when new files appear in a directory and delegates file processing (move / clean) to a small processor module.
 
 ## What this repo contains
 
