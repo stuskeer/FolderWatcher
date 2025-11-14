@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from logging.handlers import RotatingFileHandler
+from processors.file_processor import process_new_file
 
 try:
     from watchdog.observers import Observer
@@ -16,9 +17,16 @@ except Exception:  # watchdog not available
 
 
 class NewFileHandler(FileSystemEventHandler):
-    def __init__(self, logger: logging.Logger, settle_seconds: float = 0.5, max_tries: int = 10) -> None:
+    def __init__(
+        self,
+        logger: logging.Logger,
+        processed_dir: str | None = None,
+        settle_seconds: float = 0.5,
+        max_tries: int = 10,
+    ) -> None:
         super().__init__()
         self.logger = logger
+        self.processed_dir = processed_dir
         self.settle_seconds = settle_seconds
         self.max_tries = max_tries
 
@@ -49,6 +57,16 @@ class NewFileHandler(FileSystemEventHandler):
         else:
             self.logger.info("New file detected: %s", path)
 
+        # Delegate processing (move/clean) to processors.file_processor
+        try:
+            if self.processed_dir:
+                dest = process_new_file(path, processed_dir=self.processed_dir, logger=self.logger)
+                self.logger.info("Processed file: %s", dest)
+            else:
+                self.logger.info("No processed_dir configured; skipping processing for %s", path)
+        except Exception:
+            self.logger.exception("Error processing file %s", path)
+
 
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
@@ -75,6 +93,7 @@ def setup_logger(logfile: str) -> logging.Logger:
 # Edit these defaults as needed (Windows paths)
 DEFAULT_WATCH_PATH = r"D:\Data Engineering\Data\DataIn"
 DEFAULT_LOG_DIR = r"D:\Data Engineering\Data\Logs"
+DEFAULT_PROCESSED_DIR = r"D:\Data Engineering\Data\Processed"
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,6 +108,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_LOG_DIR,
         help=f"Directory to write logs to (default {DEFAULT_LOG_DIR})"
     )
+    parser.add_argument(
+        "--processed", "-d",
+        default=DEFAULT_PROCESSED_DIR,
+        help=f"Directory to move processed files to (default {DEFAULT_PROCESSED_DIR})"
+    )
     parser.add_argument("--settle", type=float, default=0.5, help="Seconds to wait between file-size checks for settle heuristic")
     parser.add_argument("--tries", type=int, default=10, help="Number of settle checks before giving up")
     return parser.parse_args()
@@ -99,9 +123,11 @@ def main() -> int:
 
     watch_path = os.path.abspath(args.path)
     log_dir = os.path.abspath(args.logdir)
+    processed_dir = os.path.abspath(args.processed)
 
     ensure_dir(watch_path)
     ensure_dir(log_dir)
+    ensure_dir(processed_dir)
 
     logfile = os.path.join(log_dir, "folder_watcher.log")
     logger = setup_logger(logfile)
@@ -109,8 +135,9 @@ def main() -> int:
     logger.info("Starting folder watcher")
     logger.info("Watching: %s", watch_path)
     logger.info("Logging to: %s", logfile)
+    logger.info("Processed dir: %s", processed_dir)
 
-    event_handler = NewFileHandler(logger, settle_seconds=args.settle, max_tries=args.tries)
+    event_handler = NewFileHandler(logger, processed_dir=processed_dir, settle_seconds=args.settle, max_tries=args.tries)
     observer = Observer()
     observer.schedule(event_handler, watch_path, recursive=False)
     observer.start()

@@ -1,13 +1,24 @@
 # FolderWatcher
 
-Simple Python folder watcher that logs when new files appear in a directory.
+Simple Python folder watcher that logs when new files appear in a directory and delegates file processing (move / clean) to a small processor module.
 
-Defaults
-- Watched directory: `D:\Data Engineering\Data\DataIn`
-- Log directory: `D:\Data Engineering\Data\Logs`
+## What this repo contains
+
+- `watcher.py` — main watcher. Uses `watchdog` to watch a directory, waits for files to settle, logs events, and calls the processor.
+- `processors/file_processor.py` — small processing hook (moves files to the configured processed directory). Extend this for cleaning, validation, uploads, etc.
+- `requirements.txt` — runtime dependencies (`watchdog`).
+- `.gitignore` — ignores the `.venv/` directory.
+
+## Defaults
+
+- Watched directory (default): `D:\Data Engineering\Data\DataIn`
+- Processed directory (default): `D:\Data Engineering\Data\Processed`
+- Log directory (default): `D:\Data Engineering\Data\Logs`
 - Log file: `D:\Data Engineering\Data\Logs\folder_watcher.log`
 
-Setup (Windows PowerShell)
+These defaults are set as constants at the top of `watcher.py`. You can edit those values if you prefer to hardcode paths instead of passing CLI arguments.
+
+## Setup (Windows PowerShell)
 
 1. Create and activate a virtual environment:
 
@@ -16,7 +27,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-If PowerShell blocks script execution you can allow local scripts once:
+If PowerShell blocks script activation, allow local scripts once (administrator not required for CurrentUser scope):
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -29,20 +40,42 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-3. Run the watcher (example):
+## Running the watcher
+
+Run with the defaults (paths defined in `watcher.py`):
 
 ```powershell
 python watcher.py
 ```
 
-Notes
-- The script uses `watchdog` to get efficient filesystem events.
-- It includes a small heuristic that waits for the new file size to stabilize before logging, to reduce false positives from partially written files.
-- The watcher creates the watch and log directories if they don't exist.
+Or override any path from the command line:
 
-Troubleshooting
-- If you see the message about `watchdog` missing, install it with:
+```powershell
+python watcher.py --path "D:\Data Engineering\Data\DataIn" --logdir "D:\Data Engineering\Data\Logs" --processed "D:\Data Engineering\Data\Processed"
+```
+
+## How processing works
+
+The watcher delegates processing to `processors.file_processor.process_new_file(path, processed_dir, logger)` once the file appears to be stable. Current behavior:
+
+- `process_new_file` creates the `processed_dir` (if needed) and moves the file there.
+- If a file with the same name already exists in `processed_dir`, it appends a numeric suffix (`-1`, `-2`, ...) to avoid overwriting.
+
+Keep processing logic in `processors/file_processor.py`. That keeps the watcher small and makes it easy to add cleaning, validation, or uploads later.
+
+## Notes & common pitfalls
+
+- If `processed_dir` is a subdirectory of the watched directory, the move operation may trigger another event. To avoid this either:
+  - Put `processed_dir` outside the watched path (recommended), or
+  - Add logic to ignore events originating from `processed_dir` (easy to add in the handler).
+- The watcher uses a basic "settle" heuristic (checks file size repeatedly) to avoid handling partially-written files. You can tune `--settle` and `--tries` on the CLI.
+- Logs are rotated with `RotatingFileHandler` to prevent unbounded growth.
+
+## Troubleshooting
+
+- Missing `watchdog`: install with:
 
 ```powershell
 python -m pip install watchdog
 ```
+- Permissions: Ensure the account running the watcher has read/write/delete access to the watched and processed directories.
